@@ -15,14 +15,14 @@
 | `firebase-config.js` | Firebase 연동 설정(선택, 미설정이어도 로컬 저장 정상) |
 | `qrcode.min.js` | QR 생성 |
 | `assets/menu.jpg` | 시작화면 히어로 이미지 (`09_photo sticker/menu` 원본 리사이즈) |
-| `stickers/lip_NN.png` | 입술 스티커 12종 — `09_photo sticker/item` 시트에서 흰 배경 제거·개별 추출한 투명 PNG |
+| `stickers/st_NN.png` | 손그림 스티커 12종 — `09_photo sticker/item/ad.jpg`에서 흰 배경 제거·개별 추출한 투명 PNG (리본·무지개·모자·토끼귀·하트·안경·반짝이) |
 
 ## 기존 버전 대비 정리한 것
 
 - 화면마다 **주요 동작 1개**만 크게, 도구는 탭형 하단 툴바로 정돈
 - 제거: BGM 파일 로더, 커스텀 셔터 로더, 보관기간 순환 버튼(72h 기본 고정), 4종 프레임·할로윈 이모지 떼, 거미줄 펜·거미줄 프레임 등 거미 테마
 - 펜: 일반 펜(색·굵기·지우개) / 프레임: 없음·흰 테두리
-- 스티커: 이모지 → **포토부스 입술 스티커 이미지**(드래그·크기조절)로 교체
+- 스티커: **손그림 이미지 스티커**(ad.jpg 추출, 드래그·크기조절)
 - 시작화면: 텍스트 워드마크 → "Photo Guestbook" 무드 이미지 히어로
 - 검증된 저장·업로드 로직(IndexedDB / litterbox 72h / tmpfiles 60분 / Firebase Storage)은 그대로 재사용
 

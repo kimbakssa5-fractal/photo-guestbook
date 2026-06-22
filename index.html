@@ -18,6 +18,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="guestbook-store.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   /* ─── 디자인 토큰 : 조용한 갤러리 ─────────────────────────── */
   :root {
@@ -27,7 +30,7 @@
     --accent:  #fd0136;   /* 빨강 포인트 */
     --accent-d:#d80030;
     --track:   #313131;   /* 슬라이더 트랙 */
-    --sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+    --sans: 'Noto Sans KR', 'Noto Sans', system-ui, sans-serif;
   }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body {
@@ -415,12 +418,14 @@
 
   // ─── 카메라 ─────────────────────────────────────────────────
   const video = $('video');
-  let facing = 'user', curPortrait = false;
+  let facing = 'user';
 
-  function setOrientation() {
-    curPortrait = window.innerHeight > window.innerWidth;
-    PHOTO_W = curPortrait ? 720 : 1280;
-    PHOTO_H = curPortrait ? 1280 : 720;
+  // 카메라 스트림의 실제 해상도에 맞춰 사진/캔버스 크기를 정한다 → 프리뷰와 결과물이 일치.
+  function applyStreamSize() {
+    let vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+    const MAX = 1280;                                   // 긴 변 최대치(업로드 용량 제한)
+    const s = Math.min(1, MAX / Math.max(vw, vh));
+    PHOTO_W = Math.round(vw * s); PHOTO_H = Math.round(vh * s);
     [photoCanvas, doodleCanvas, overlayCanvas, frameCanvas]
       .forEach(cv => { cv.width = PHOTO_W; cv.height = PHOTO_H; });
     sizePhotoWrap();
@@ -438,20 +443,15 @@
     wrap.style.height = h + 'px';
   }
   window.addEventListener('resize', () => {
-    if ($('scrCamera').classList.contains('active')) {
-      const p = window.innerHeight > window.innerWidth;
-      if (p !== curPortrait) setOrientation();
-    }
     if ($('scrDecorate').classList.contains('active')) sizePhotoWrap();
   });
 
   async function startCamera() {
     show('scrCamera');
     $('camError').style.display = 'none';
-    setOrientation();
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: PHOTO_W }, height: { ideal: PHOTO_H }, facingMode: facing },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: facing },
         audio: false
       });
       video.srcObject = stream;
@@ -465,6 +465,7 @@
           setTimeout(done, 3000);
         });
       }
+      applyStreamSize();   // 실제 스트림 비율로 캔버스 확정(프리뷰=결과)
       return true;
     } catch (err) {
       const e = $('camError');
@@ -511,17 +512,15 @@
   let currentEntryId = null, lastComposite = null, lastShareUrl = null;
 
   function capture() {
+    // 캔버스 비율 = 스트림 비율이므로 그대로 꽉 채워 그린다(프리뷰와 동일, 잘림 없음).
     pctx.save();
     if (facing === 'user') { pctx.translate(PHOTO_W, 0); pctx.scale(-1, 1); }
-    const vw = video.videoWidth || PHOTO_W, vh = video.videoHeight || PHOTO_H;
-    const s = Math.max(PHOTO_W / vw, PHOTO_H / vh);
-    const dw = vw * s, dh = vh * s;
-    pctx.drawImage(video, (PHOTO_W - dw) / 2, (PHOTO_H - dh) / 2, dw, dh);
+    pctx.drawImage(video, 0, 0, PHOTO_W, PHOTO_H);
     pctx.restore();
 
     // 날짜 스탬프
     pctx.save();
-    pctx.font = '22px "Malgun Gothic", sans-serif';
+    pctx.font = '22px "Noto Sans KR", sans-serif';
     pctx.textAlign = 'right';
     pctx.shadowColor = 'rgba(0,0,0,0.7)'; pctx.shadowBlur = 6;
     pctx.fillStyle = 'rgba(255,255,255,0.92)';
@@ -644,7 +643,7 @@
   overlayCanvas.width = PHOTO_W; overlayCanvas.height = PHOTO_H;
   let items = [], selected = -1, placeMode = false;
   const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-  const TEXT_FONT = '"Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+  const TEXT_FONT = '"Noto Sans KR","Noto Sans",sans-serif';
 
   function itemFont(it) { return `${it.size}px ${it.kind === 'text' ? TEXT_FONT : EMOJI_FONT}`; }
   function itemWidth(it) {
@@ -718,12 +717,12 @@
   overlayCanvas.addEventListener('touchmove', e => { e.preventDefault(); oMove(e); }, { passive: false });
   overlayCanvas.addEventListener('touchend', e => { e.preventDefault(); oDragging = false; }, { passive: false });
 
-  // 입술 스티커(포토부스) — stickers/lip_NN.png 를 트레이에 채운다 (시험판: 소량 6종)
-  const STICKER_COUNT = 6;
+  // 손그림 스티커(ad.jpg) — stickers/st_NN.png 를 트레이에 채운다
+  const STICKER_COUNT = 12;
   (() => {
     const tray = $('stickerTray');
     for (let i = 0; i < STICKER_COUNT; i++) {
-      const src = 'stickers/lip_' + String(i).padStart(2, '0') + '.png';
+      const src = 'stickers/st_' + String(i).padStart(2, '0') + '.png';
       const thumb = new Image(); thumb.src = src; thumb.alt = '입술 스티커';
       const full = new Image(); full.src = src;   // 합성용 원본
       thumb.addEventListener('click', () => addImageItem(full));
