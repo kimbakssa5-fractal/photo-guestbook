@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>포토 방명록 관리</title>
+<!-- Firebase (firebase-config.js 설정 시에만 동작) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="guestbook-store.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; min-height: 100%;
+    background: #16161d;
+    color: #eee;
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  }
+
+  /* ── 잠금 화면 ── */
+  #lock {
+    position: fixed; inset: 0;
+    background: #16161d;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    z-index: 100;
+  }
+  #lock h1 { font-size: 26px; }
+  #lock input {
+    width: 220px;
+    font-size: 28px; text-align: center; letter-spacing: 0.4em;
+    padding: 10px;
+    background: #22222b; color: #fff;
+    border: 1px solid #4a4a5a; border-radius: 10px;
+    outline: none;
+  }
+  #lockMsg { color: #e88; font-size: 13px; min-height: 18px; }
+
+  /* ── 헤더 ── */
+  header {
+    position: sticky; top: 0;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 14px 20px;
+    background: rgba(22,22,29,0.95);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid #2a2a36;
+    z-index: 10;
+  }
+  header h1 { font-size: 20px; }
+  #count { color: #8ab4f8; font-size: 14px; }
+  #syncStatus { color: #889; font-size: 12px; }
+  header .spacer { margin-left: auto; }
+  header a { color: #667; font-size: 13px; text-decoration: none; }
+
+  button {
+    background: #2e2e3a;
+    border: 1px solid #4a4a5a;
+    color: #eee;
+    font-size: 13px; font-family: inherit;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button:active { background: #44445a; }
+  button.primary { background: #5b8def; border-color: #5b8def; }
+  button.danger { background: #3a2329; border-color: #6a3a44; color: #f0a0ad; }
+
+  /* ── 그리드 ── */
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 16px;
+    padding: 20px;
+  }
+  .card {
+    background: #1e1e27;
+    border: 1px solid #2a2a36;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .card img {
+    width: 100%; aspect-ratio: 16/9; object-fit: cover;
+    display: block; cursor: pointer;
+    background: #000;
+  }
+  .card .meta {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px;
+    font-size: 12px; color: #9aa;
+  }
+  .card .meta .badge { font-size: 11px; }
+  .card .meta button {
+    padding: 4px 9px; font-size: 12px;
+    margin-left: auto;
+  }
+  .card .meta button + button { margin-left: 0; }
+
+  #empty {
+    padding: 80px 20px;
+    text-align: center;
+    color: #556;
+    font-size: 15px;
+    display: none;
+  }
+
+  /* ── 상세 모달 ── */
+  #modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    padding: 20px;
+    z-index: 50;
+  }
+  #modal.open { display: flex; }
+  #modal img {
+    max-width: 92vw; max-height: 72vh;
+    border-radius: 10px;
+    box-shadow: 0 10px 50px rgba(0,0,0,0.7);
+  }
+  #modalDate { color: #aab; font-size: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+  /* ── 연동 설정 모달 ── */
+  #setModal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 20px;
+    z-index: 60;
+  }
+  #setModal.open { display: flex; }
+  #setModal .panel {
+    background: #1e1e27;
+    border: 1px solid #2a2a36;
+    border-radius: 14px;
+    padding: 24px;
+    width: min(640px, 94vw);
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #setModal h2 { font-size: 18px; }
+  #setModal .hint { font-size: 12px; color: #889; line-height: 1.7; }
+  #setStatus { font-size: 13px; min-height: 18px; }
+  #cfgText {
+    width: 100%; height: 170px;
+    background: #14141b; color: #cde;
+    border: 1px solid #3a3a4a; border-radius: 8px;
+    padding: 10px;
+    font-family: Consolas, monospace; font-size: 12px;
+    resize: vertical;
+    outline: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- 잠금 화면 -->
+<div id="lock">
+  <h1>🔒 포토 방명록 관리</h1>
+  <input type="password" id="pin" inputmode="numeric" maxlength="8" placeholder="••••" autofocus>
+  <div id="lockMsg"></div>
+  <div class="row">
+    <button class="primary" id="btnUnlock">확인</button>
+    <button onclick="location.href='guestbook.html'">← 돌아가기</button>
+  </div>
+</div>
+
+<header style="display:none" id="hdr">
+  <h1>📸 방명록 기록 관리</h1>
+  <span id="count"></span>
+  <span id="syncStatus"></span>
+  <span class="spacer"></span>
+  <button id="btnPin">🔑 비밀번호 변경</button>
+  <button id="btnSettings">⚙ 연동 설정</button>
+  <button id="btnSync">☁ 동기화</button>
+  <button id="btnDownloadAll">💾 전체 다운로드</button>
+  <button class="danger" id="btnDeleteAll">🗑 전체 삭제</button>
+  <a href="guestbook.html">⌂ 방명록으로</a>
+</header>
+
+<div id="grid"></div>
+<div id="empty">아직 저장된 방명록 기록이 없습니다.<br>키오스크에서 사진을 촬영하면 자동으로 이곳에 보관됩니다.</div>
+
+<!-- 상세 보기 -->
+<div id="modal">
+  <img id="modalImg" alt="">
+  <div id="modalDate"></div>
+  <div class="row">
+    <button class="primary" id="btnDl">💾 다운로드</button>
+    <button class="danger" id="btnDel">🗑 삭제</button>
+    <button id="btnClose">✕ 닫기</button>
+  </div>
+</div>
+
+<!-- Firebase 연동 설정 -->
+<div id="setModal">
+  <div class="panel">
+    <h2>☁ Firebase 연동 설정</h2>
+    <div id="setStatus"></div>
+    <textarea id="cfgText" spellcheck="false" placeholder='Firebase 콘솔에서 복사한 firebaseConfig를 그대로 붙여넣으세요. 예:
+
+const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "xxx.firebaseapp.com",
+  projectId: "xxx",
+  storageBucket: "xxx.appspot.com",
+  messagingSenderId: "123...",
+  appId: "1:123...:web:abc..."
+};'></textarea>
+    <div class="hint">
+      ① <a href="https://console.firebase.google.com" target="_blank" style="color:#8ab4f8">console.firebase.google.com</a>에서 프로젝트 만들기 →
+      ② 프로젝트 개요에서 웹 앱 추가(&lt;/&gt;) 후 표시되는 firebaseConfig 복사 →
+      ③ 빌드 &gt; Firestore Database &gt; 데이터베이스 만들기(테스트 모드) →
+      ④ 위 칸에 붙여넣고 저장.<br>
+      설정은 이 브라우저(localStorage)에 저장되므로 키오스크 기기마다 한 번씩 해주면 됩니다.
+      연동하지 않아도 기록은 이 기기 안에 모두 저장됩니다.
+    </div>
+    <div class="row">
+      <button class="primary" id="btnCfgSave">저장 + 연결 테스트</button>
+      <button class="danger" id="btnCfgClear">연동 해제</button>
+      <button id="btnCfgClose">✕ 닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ── 관리 비밀번호 ──────────────────────────────────────
+  // 초기값. "🔑 비밀번호 변경"으로 바꾸면 localStorage 값이 우선 적용됨
+  const ADMIN_PIN = '1210';
+  const PIN_KEY = 'gb_admin_pin';
+  function getPin() {
+    try { return localStorage.getItem(PIN_KEY) || ADMIN_PIN; } catch (e) { return ADMIN_PIN; }
+  }
+
+  const $ = id => document.getElementById(id);
+
+  // ── 잠금 ──────────────────────────────────────────────
+  function unlock() {
+    if ($('pin').value === getPin()) {
+      $('lock').style.display = 'none';
+      $('hdr').style.display = 'flex';
+      init();
+    } else {
+      $('lockMsg').textContent = '비밀번호가 올바르지 않습니다';
+      $('pin').value = '';
+      $('pin').focus();
+    }
+  }
+  $('btnUnlock').addEventListener('click', unlock);
+  $('pin').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+  // ── 목록 ──────────────────────────────────────────────
+  let entries = [];
+  let modalEntry = null;
+
+  function fmtDate(en) {
+    if (en.label) return en.label;
+    const d = new Date(en.t);
+    return isNaN(d) ? en.t : d.toLocaleString('ko-KR');
+  }
+  function fileName(en) {
+    const d = new Date(en.t);
+    const pad = n => String(n).padStart(2, '0');
+    if (isNaN(d)) return 'guestbook_' + en.id + '.jpg';
+    return `guestbook_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.jpg`;
+  }
+  function download(en) {
+    const a = document.createElement('a');
+    a.download = fileName(en);
+    a.href = en.d;
+    a.click();
+  }
+
+  async function render() {
+    try { entries = await GuestbookStore.list(); } catch (e) { entries = []; }
+    const grid = $('grid');
+    grid.innerHTML = '';
+    $('count').textContent = '총 ' + entries.length + '장';
+    $('empty').style.display = entries.length ? 'none' : 'block';
+
+    entries.forEach(en => {
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      const img = new Image();
+      img.src = en.th || en.d;
+      img.addEventListener('click', () => openModal(en));
+      card.appendChild(img);
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = en.synced ? '☁' : '💾';
+      badge.title = en.synced ? 'Firebase 동기화됨' : '이 기기에만 저장됨';
+      meta.appendChild(badge);
+
+      const date = document.createElement('span');
+      date.textContent = fmtDate(en);
+      meta.appendChild(date);
+
+      const bDl = document.createElement('button');
+      bDl.textContent = '💾';
+      bDl.title = '다운로드';
+      bDl.addEventListener('click', () => download(en));
+      meta.appendChild(bDl);
+
+      const bDel = document.createElement('button');
+      bDel.textContent = '🗑';
+      bDel.title = '삭제';
+      bDel.addEventListener('click', async () => {
+        if (!confirm('이 기록을 삭제할까요?')) return;
+        await GuestbookStore.remove(en.id);
+        render();
+      });
+      meta.appendChild(bDel);
+
+      card.appendChild(meta);
+      grid.appendChild(card);
+    });
+  }
+
+  // ── 상세 모달 ─────────────────────────────────────────
+  function openModal(en) {
+    modalEntry = en;
+    $('modalImg').src = en.d;
+    $('modalDate').textContent = fmtDate(en);
+    $('modal').classList.add('open');
+  }
+  function closeModal() { $('modal').classList.remove('open'); modalEntry = null; }
+  $('btnClose').addEventListener('click', closeModal);
+  $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
+  $('btnDl').addEventListener('click', () => { if (modalEntry) download(modalEntry); });
+  $('btnDel').addEventListener('click', async () => {
+    if (!modalEntry || !confirm('이 기록을 삭제할까요?')) return;
+    await GuestbookStore.remove(modalEntry.id);
+    closeModal();
+    render();
+  });
+
+  // ── 동기화 ────────────────────────────────────────────
+  async function doSync(auto) {
+    const st = $('syncStatus');
+    if (!GuestbookStore.hasFirebaseConfig()) {
+      st.textContent = 'Firebase 미설정 — 이 기기에만 저장 중 ("⚙ 연동 설정"에서 설정 가능)';
+      return;
+    }
+    st.textContent = '동기화 중...';
+    const r = await GuestbookStore.syncAll();
+    if (r.ok) {
+      st.textContent = `동기화 완료 (업로드 ${r.up} · 다운로드 ${r.down})`;
+      render();
+    } else {
+      st.textContent = '동기화 실패: ' + r.reason;
+    }
+  }
+  $('btnSync').addEventListener('click', () => doSync(false));
+
+  // ── 비밀번호 변경 ─────────────────────────────────────
+  $('btnPin').addEventListener('click', () => {
+    const cur = prompt('현재 비밀번호를 입력하세요');
+    if (cur === null) return;
+    if (cur !== getPin()) { alert('현재 비밀번호가 올바르지 않습니다'); return; }
+    const np = prompt('새 비밀번호를 입력하세요 (숫자 4~8자리)');
+    if (np === null) return;
+    if (!/^\d{4,8}$/.test(np)) { alert('숫자 4~8자리로 입력하세요'); return; }
+    const np2 = prompt('새 비밀번호를 한 번 더 입력하세요');
+    if (np2 === null) return;
+    if (np2 !== np) { alert('두 입력이 일치하지 않습니다'); return; }
+    try { localStorage.setItem(PIN_KEY, np); } catch (e) { alert('저장 실패: ' + e.message); return; }
+    alert('비밀번호가 변경되었습니다.\n(이 브라우저에만 적용되며, 기기마다 따로 설정됩니다)');
+  });
+
+  // ── Firebase 연동 설정 UI ─────────────────────────────
+  function refreshSetStatus(msg, isError) {
+    const st = $('setStatus');
+    if (msg) {
+      st.textContent = msg;
+      st.style.color = isError ? '#e88' : '#8f8';
+      return;
+    }
+    const src = GuestbookStore.configSource();
+    st.style.color = '#9aa';
+    if (src === 'file') st.textContent = '현재 상태: firebase-config.js 파일 설정 사용 중 (파일 설정이 UI 설정보다 우선합니다)';
+    else if (src === 'ui') st.textContent = '현재 상태: ✅ 연동됨 (이 페이지에서 저장한 설정 사용 중)';
+    else st.textContent = '현재 상태: 미연동 — 기록은 이 기기에만 저장됩니다';
+  }
+  // Firebase 콘솔에서 복사한 JS 조각/JSON 모두 허용
+  function parseConfig(text) {
+    const s = text.indexOf('{'), e = text.lastIndexOf('}');
+    if (s < 0 || e <= s) throw new Error('붙여넣은 내용에서 { ... } 객체를 찾을 수 없습니다');
+    let obj;
+    try { obj = new Function('return (' + text.slice(s, e + 1) + ')')(); }
+    catch (err) { throw new Error('형식을 해석할 수 없습니다: ' + err.message); }
+    if (!obj || !obj.apiKey || !obj.projectId) throw new Error('apiKey 또는 projectId가 없습니다. firebaseConfig 전체를 붙여넣었는지 확인하세요');
+    return obj;
+  }
+  $('btnSettings').addEventListener('click', () => {
+    refreshSetStatus();
+    $('setModal').classList.add('open');
+  });
+  $('btnCfgClose').addEventListener('click', () => $('setModal').classList.remove('open'));
+  $('setModal').addEventListener('click', e => { if (e.target === $('setModal')) $('setModal').classList.remove('open'); });
+  $('btnCfgSave').addEventListener('click', async () => {
+    let obj;
+    try { obj = parseConfig($('cfgText').value); }
+    catch (err) { refreshSetStatus('⚠ ' + err.message, true); return; }
+    refreshSetStatus('저장됨 — 연결 테스트 중...');
+    await GuestbookStore.saveConfig(obj);
+    const r = await GuestbookStore.syncAll();
+    if (r.ok) {
+      refreshSetStatus(`✅ 연결 성공! (업로드 ${r.up} · 다운로드 ${r.down}) — 이제 이 기기의 기록이 자동 동기화됩니다`);
+      render();
+      doSync(true);
+    } else {
+      refreshSetStatus('⚠ 저장은 됐지만 연결 실패: ' + r.reason, true);
+    }
+  });
+  $('btnCfgClear').addEventListener('click', async () => {
+    if (GuestbookStore.configSource() === 'file') {
+      refreshSetStatus('⚠ firebase-config.js 파일에 설정이 있어 UI에서 해제할 수 없습니다. 파일에서 null로 바꿔주세요', true);
+      return;
+    }
+    if (!confirm('Firebase 연동을 해제할까요?\n(원격에 올라간 기록은 그대로 남고, 이후 새 기록은 이 기기에만 저장됩니다)')) return;
+    await GuestbookStore.clearConfig();
+    $('cfgText').value = '';
+    refreshSetStatus();
+    doSync(true);
+  });
+
+  // ── 전체 다운로드 / 전체 삭제 ─────────────────────────
+  $('btnDownloadAll').addEventListener('click', async () => {
+    if (!entries.length) return;
+    if (!confirm(entries.length + '장을 모두 다운로드할까요?\n(브라우저에서 여러 파일 다운로드 허용이 필요할 수 있습니다)')) return;
+    for (const en of entries) {
+      download(en);
+      await new Promise(r => setTimeout(r, 350));
+    }
+  });
+  $('btnDeleteAll').addEventListener('click', async () => {
+    if (!entries.length) return;
+    if (!confirm('모든 기록 ' + entries.length + '장을 삭제할까요?')) return;
+    if (!confirm('정말 삭제합니다. 되돌릴 수 없습니다!')) return;
+    for (const en of entries) await GuestbookStore.remove(en.id);
+    render();
+  });
+
+  // ── 시작 ──────────────────────────────────────────────
+  async function init() {
+    try { await GuestbookStore.migrateLegacy(); } catch (e) {}
+    await render();
+    doSync(true);
+  }
+})();
+</script>
+</body>
+</html>
