@@ -750,8 +750,8 @@
   overlayCanvas.addEventListener('touchmove', e => { e.preventDefault(); oMove(e); }, { passive: false });
   overlayCanvas.addEventListener('touchend', e => { e.preventDefault(); oDragging = false; }, { passive: false });
 
-  // 손그림 스티커(ad.jpg) — stickers/st_NN.png 를 트레이에 채운다
-  const STICKER_COUNT = 12;
+  // 스티커(ad.jpg + 포토부스 소품 시트) — stickers/st_NN.png 를 트레이에 채운다
+  const STICKER_COUNT = 27;
   (() => {
     const tray = $('stickerTray');
     for (let i = 0; i < STICKER_COUNT; i++) {
