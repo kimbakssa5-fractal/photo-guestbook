@@ -290,6 +290,8 @@
       <button class="bar-btn" id="btnAddText">＋ 글자</button>
       <span class="lab">크기</span>
       <input type="range" id="itemSize" min="28" max="280" step="2" value="100">
+      <span class="lab">각도</span>
+      <input type="range" id="itemAngle" min="-180" max="180" step="1" value="0">
       <button class="bar-btn" id="btnDelItem">🗑 선택 삭제</button>
     </div>
 
@@ -669,29 +671,37 @@
   }
   function renderOverlay(forFinal) {
     octx.clearRect(0, 0, PHOTO_W, PHOTO_H);
-    octx.textAlign = 'center'; octx.textBaseline = 'middle';
     items.forEach((it, i) => {
-      const w = itemWidth(it), h = it.size;
+      const w = itemWidth(it), h = it.size, ang = it.angle || 0;
+      octx.save();
+      octx.translate(it.x, it.y); octx.rotate(ang);   // 아이템 중심 기준 회전
       if (it.kind === 'image') {
         if (it.img.complete && it.img.naturalWidth) {
-          octx.save(); octx.shadowColor = 'rgba(0,0,0,0.35)'; octx.shadowBlur = h * 0.04; octx.shadowOffsetY = h * 0.02;
-          octx.drawImage(it.img, it.x - w / 2, it.y - h / 2, w, h); octx.restore();
+          octx.shadowColor = 'rgba(0,0,0,0.35)'; octx.shadowBlur = h * 0.04; octx.shadowOffsetY = h * 0.02;
+          octx.drawImage(it.img, -w / 2, -h / 2, w, h);
         }
       } else {
-        octx.save(); octx.font = itemFont(it);
+        octx.textAlign = 'center'; octx.textBaseline = 'middle'; octx.font = itemFont(it);
         if (it.kind === 'text') { octx.fillStyle = it.color; octx.shadowColor = 'rgba(0,0,0,0.6)'; octx.shadowBlur = Math.max(2, it.size * 0.06); }
-        octx.fillText(it.text, it.x, it.y); octx.restore();
+        octx.fillText(it.text, 0, 0);
       }
+      octx.restore();
       if (!forFinal && i === selected) {
-        octx.save(); octx.strokeStyle = '#fff'; octx.lineWidth = 3; octx.setLineDash([10, 7]);
-        octx.strokeRect(it.x - w / 2 - 10, it.y - h / 2 - 10, w + 20, h + 20); octx.restore();
+        octx.save();
+        octx.translate(it.x, it.y); octx.rotate(ang);
+        octx.strokeStyle = '#fff'; octx.lineWidth = 3; octx.setLineDash([10, 7]);
+        octx.strokeRect(-w / 2 - 10, -h / 2 - 10, w + 20, h + 20);
+        octx.restore();
       }
     });
   }
   function hitItem(x, y) {
     for (let i = items.length - 1; i >= 0; i--) {
-      const it = items[i], w = itemWidth(it), h = it.size;
-      if (x >= it.x - w / 2 - 10 && x <= it.x + w / 2 + 10 && y >= it.y - h / 2 - 10 && y <= it.y + h / 2 + 10) return i;
+      const it = items[i], w = itemWidth(it), h = it.size, ang = it.angle || 0;
+      const dx = x - it.x, dy = y - it.y;                 // 점을 아이템 로컬좌표로 역회전
+      const c = Math.cos(-ang), s = Math.sin(-ang);
+      const lx = dx * c - dy * s, ly = dx * s + dy * c;
+      if (lx >= -w / 2 - 10 && lx <= w / 2 + 10 && ly >= -h / 2 - 10 && ly <= h / 2 + 10) return i;
     }
     return -1;
   }
@@ -701,15 +711,21 @@
     if (!on) selected = -1;
     renderOverlay();
   }
+  // 선택된 아이템의 크기·각도를 슬라이더에 반영
+  function syncItemControls() {
+    if (selected < 0) return;
+    $('itemSize').value = items[selected].size;
+    $('itemAngle').value = Math.round((items[selected].angle || 0) * 180 / Math.PI);
+  }
   function addItem(kind, text) {
     const size = +$('itemSize').value || 100;
-    items.push({ kind, text, x: PHOTO_W / 2, y: PHOTO_H / 2, size, color: pen.color });
-    selected = items.length - 1; renderOverlay();
+    items.push({ kind, text, x: PHOTO_W / 2, y: PHOTO_H / 2, size, color: pen.color, angle: 0 });
+    selected = items.length - 1; syncItemControls(); renderOverlay();
   }
   function addImageItem(img) {
     const size = Math.max(160, +$('itemSize').value || 160);
-    items.push({ kind: 'image', img, x: PHOTO_W / 2, y: PHOTO_H / 2, size });
-    selected = items.length - 1; $('itemSize').value = size; renderOverlay();
+    items.push({ kind: 'image', img, x: PHOTO_W / 2, y: PHOTO_H / 2, size, angle: 0 });
+    selected = items.length - 1; syncItemControls(); renderOverlay();
   }
   let oDragging = false, oDX = 0, oDY = 0;
   function opos(e) {
@@ -720,7 +736,7 @@
   function oDown(e) {
     const p = opos(e), i = hitItem(p.x, p.y);
     selected = i;
-    if (i >= 0) { oDragging = true; oDX = p.x - items[i].x; oDY = p.y - items[i].y; $('itemSize').value = items[i].size; }
+    if (i >= 0) { oDragging = true; oDX = p.x - items[i].x; oDY = p.y - items[i].y; syncItemControls(); }
     renderOverlay();
   }
   function oMove(e) {
@@ -751,6 +767,7 @@
     addItem('text', v); $('textInput').value = '';
   });
   $('itemSize').addEventListener('input', e => { if (selected >= 0) { items[selected].size = +e.target.value; renderOverlay(); } });
+  $('itemAngle').addEventListener('input', e => { if (selected >= 0) { items[selected].angle = (+e.target.value) * Math.PI / 180; renderOverlay(); } });
   $('btnDelItem').addEventListener('click', () => { if (selected >= 0) { items.splice(selected, 1); selected = -1; renderOverlay(); } });
 
   // ─── 프레임 ─────────────────────────────────────────────────
